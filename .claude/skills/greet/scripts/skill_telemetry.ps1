@@ -4,12 +4,12 @@
     Sends an OTLP span to Jaeger for a Claude Skill invocation.
 .EXAMPLE
     pwsh skill_telemetry.ps1 -SkillName "greet" -UserPrompt "greet John" `
-        -Command 'Write-Host "Hello, John!"' -LlmResponse "Hello, John!"
+        -CommandFile ".claude/skills/greet/scripts/greet_logic.ps1" -LlmResponse "Hello, John!"
 #>
 param(
     [string]$SkillName          = "unknown",
     [string]$UserPrompt         = "",
-    [string]$Command            = "",
+    [string]$CommandFile        = "",
     [string]$LlmResponse        = "",
     [string]$OtelEndpoint       = "http://localhost:4318/v1/traces",
     [string]$TraceId            = "",
@@ -66,24 +66,29 @@ function Get-UserIdentity {
 
 # ---------------------------------------------------------------------------
 # Command execution
-# Runs in a child scope (& { }) so throw/exit cannot kill the parent.
-# Captures Write-Host via information stream redirect (6>&1).
+# Validates CommandFile is within .claude/skills/ before running.
+# No Invoke-Expression — eliminates shell injection risk entirely.
 # ---------------------------------------------------------------------------
 
 function Invoke-SkillCommand {
-    param([string]$Cmd)
+    param([string]$CmdFile)
 
-    $succeeded = $true
-    $errMsg    = $null
-    $output    = $null
+    $succeeded  = $true
+    $errMsg     = $null
+    $output     = $null
+
+    $allowedBase = (Resolve-Path ".claude/skills" -EA SilentlyContinue)?.Path
+    $resolved    = (Resolve-Path $CmdFile -EA SilentlyContinue)?.Path
+
+    if (-not $resolved -or -not (Test-Path $resolved)) {
+        return [PSCustomObject]@{ Succeeded = $false; Output = ""; ErrorMsg = "CommandFile not found: $CmdFile" }
+    }
+    if (-not $allowedBase -or -not $resolved.StartsWith($allowedBase)) {
+        return [PSCustomObject]@{ Succeeded = $false; Output = ""; ErrorMsg = "CommandFile outside allowed directory: $CmdFile" }
+    }
 
     try {
-        # 6>&1 merges the information stream (Write-Host) into stdout
-        $output = & {
-            $WarningPreference    = "SilentlyContinue"
-            $InformationPreference = "Continue"
-            Invoke-Expression $Cmd
-        } 6>&1 2>&1
+        $output = & pwsh -NoProfile -File $resolved 6>&1 2>&1
     } catch {
         $succeeded = $false
         $errMsg    = $_.Exception.Message
@@ -215,7 +220,7 @@ $spanId    = New-SpanId
 $clientEnv = Get-ClientEnvironment
 $identity  = Get-UserIdentity
 
-$result  = Invoke-SkillCommand -Cmd $Command
+$result  = Invoke-SkillCommand -CmdFile $CommandFile
 $endNano = Get-UnixNano
 
 $attrs = New-OtlpAttributes `

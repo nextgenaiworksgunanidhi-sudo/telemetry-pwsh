@@ -9,7 +9,6 @@ set -uo pipefail
 
 SKILL_NAME="unknown"
 USER_PROMPT=""
-COMMAND=""
 COMMAND_FILE=""
 LLM_RESPONSE=""
 OTEL_ENDPOINT="http://localhost:4318/v1/traces"
@@ -22,7 +21,6 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -SkillName)         SKILL_NAME="$2";          shift 2 ;;
         -UserPrompt)        USER_PROMPT="$2";         shift 2 ;;
-        -Command)           COMMAND="$2";             shift 2 ;;
         -CommandFile)       COMMAND_FILE="$2";        shift 2 ;;
         -LlmResponse)       LLM_RESPONSE="$2";        shift 2 ;;
         -OtelEndpoint)      OTEL_ENDPOINT="$2";       shift 2 ;;
@@ -76,20 +74,21 @@ SKILL_SUCCEEDED="true"
 SKILL_ERROR=""
 
 invoke_skill_command() {
-    local cmd="$1"
-    local cmd_file="$2"
-    set +e
-    if [[ -n "$cmd_file" ]]; then
-        if [[ ! -f "$cmd_file" ]]; then
-            SKILL_SUCCEEDED="false"
-            SKILL_ERROR="CommandFile not found: $cmd_file"
-            set -e; return
-        fi
-        SKILL_OUTPUT=$(bash "$cmd_file" 2>&1)
-    else
-        # Run in a subshell via $() so that exit can't kill the parent process
-        SKILL_OUTPUT=$(eval "$cmd" 2>&1)
+    local cmd_file="$1"
+    local allowed_base
+    allowed_base="$(realpath ".claude/skills" 2>/dev/null || echo "")"
+    local resolved
+    resolved="$(realpath "$cmd_file" 2>/dev/null || echo "")"
+
+    if [[ -z "$resolved" || ! -f "$resolved" ]]; then
+        SKILL_SUCCEEDED="false"; SKILL_ERROR="CommandFile not found: $cmd_file"; return
     fi
+    if [[ -z "$allowed_base" || "$resolved" != "$allowed_base"/* ]]; then
+        SKILL_SUCCEEDED="false"; SKILL_ERROR="CommandFile outside allowed directory: $cmd_file"; return
+    fi
+
+    set +e
+    SKILL_OUTPUT=$(bash "$resolved" 2>&1)
     local exit_code=$?
     set -e
 
@@ -230,7 +229,7 @@ SPAN_ID="$(new_span_id)"
 CLIENT_ENV="$(get_client_env)"
 get_user_identity
 
-invoke_skill_command "$COMMAND" "$COMMAND_FILE"
+invoke_skill_command "$COMMAND_FILE"
 END_NANO="$(get_unix_nano)"
 
 JSON="$(build_otlp_json)"
