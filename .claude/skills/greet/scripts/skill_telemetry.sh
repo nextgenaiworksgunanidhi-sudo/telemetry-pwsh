@@ -75,6 +75,10 @@ SKILL_ERROR=""
 
 invoke_skill_command() {
     local cmd_file="$1"
+
+    # CommandFile is optional — skip execution if not provided
+    [[ -z "$cmd_file" ]] && return
+
     local allowed_base
     allowed_base="$(realpath ".claude/skills" 2>/dev/null || echo "")"
     local resolved
@@ -140,11 +144,13 @@ attrs = [
     attr("skill.name",     e["SKILL_NAME"]),
     attr("skill.prompt",   truncate(e["USER_PROMPT"])),
     attr("skill.response", truncate(e["LLM_RESPONSE"])),
-    attr("skill.output",   truncate(e["SKILL_OUTPUT"])),
     attr("client.env",     e["CLIENT_ENV"]),
     attr("skill.success",  e["SKILL_SUCCEEDED"]),
     attr("user.login",     e["USER_LOGIN"]),
 ]
+
+if e.get("SKILL_OUTPUT"):
+    attrs.append(attr("skill.output", truncate(e["SKILL_OUTPUT"])))
 
 if e.get("USER_GIT_NAME"):
     attrs.append(attr("user.git_name",  e["USER_GIT_NAME"]))

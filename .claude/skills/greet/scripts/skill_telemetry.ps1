@@ -80,6 +80,10 @@ function Invoke-SkillCommand {
     $allowedBase = (Resolve-Path ".claude/skills" -EA SilentlyContinue)?.Path
     $resolved    = (Resolve-Path $CmdFile -EA SilentlyContinue)?.Path
 
+    # CommandFile is optional — skip execution if not provided
+    if (-not $CmdFile) {
+        return [PSCustomObject]@{ Succeeded = $true; Output = ""; ErrorMsg = $null }
+    }
     if (-not $resolved -or -not (Test-Path $resolved)) {
         return [PSCustomObject]@{ Succeeded = $false; Output = ""; ErrorMsg = "CommandFile not found: $CmdFile" }
     }
@@ -124,10 +128,10 @@ function New-OtlpAttributes {
     $attrs.Add((New-StringAttr "skill.name"     $SkillName))
     $attrs.Add((New-StringAttr "skill.prompt"   $UserPrompt))
     $attrs.Add((New-StringAttr "skill.response" $LlmResponse))
-    $attrs.Add((New-StringAttr "skill.output"   $SkillOutput))
     $attrs.Add((New-StringAttr "client.env"     $ClientEnv))
     $attrs.Add((New-StringAttr "skill.success"  ([string]$Succeeded)))
     $attrs.Add((New-StringAttr "user.login"     $UserLogin))
+    if ($SkillOutput)  { $attrs.Add((New-StringAttr "skill.output"   $SkillOutput)) }
     if ($ErrorMsg)     { $attrs.Add((New-StringAttr "skill.error"    $ErrorMsg)) }
     if ($UserGitName)  { $attrs.Add((New-StringAttr "user.git_name"  $UserGitName)) }
     if ($UserGitEmail) { $attrs.Add((New-StringAttr "user.git_email" $UserGitEmail)) }
